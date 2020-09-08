@@ -30,21 +30,9 @@ cmdAddToIPSet ipSetName ip = do
     else
         putStrLn $ "Failed(" ++ show code ++ ") " ++ stderr
     
--- Update the named IP set with the list of IP addresses
-setIPset :: String -> IO [IPv4] -> IO ()
-setIPset ipSetName ipList = do
-    -- lift show so that can work on IO wrapped list
-    -- fmap show across the ipList to convert to IO [String]
-    printedList <- fmap (liftM show) ipList
-    putStr $ ipSetName ++ "\n------------\n"
-    -- map for IO to print line with each element of the printedList
-    mapM_ putStrLn printedList
-    print ""
-
-setIPSet2 :: String -> [IPv4] -> IO ()
-setIPSet2 ipSetName ipList = do
-    let addCmd = (cmdAddToIPSet ipSetName)
-    mapM_ addCmd ipList
+setIPSet :: String -> [IPv4] -> IO ()
+setIPSet ipSetName ipList = do
+    mapM_ (cmdAddToIPSet ipSetName) ipList
 
 main :: IO ()
 main = do
@@ -58,11 +46,9 @@ main = do
     -- list comprehension to lookup the list of hosts for each ipset
     -- [([Char],(IO [IPv4]))]
     ipSetNamesToIPs <- return [ (k, lookupHosts v) | (k, v) <- toList ipsetsData ]
-    -- each element in ipSetNamesToIPs is a tuple of args to setIpSet, unpack so can call setIpSet for each
-    mapM_ (\ipSetNameToIPs -> setIPset (fst ipSetNameToIPs) (snd ipSetNameToIPs) ) ipSetNamesToIPs
     -- setIPSet gets partially applied and <$!> allows the function to unwrap the IO Parameter since
     -- it returns the IO monad
     -- 
-    let s3 = (\(ipSetName, ioIpList) -> join $ (setIPSet2 ipSetName) <$!> ioIpList) :: (String, IO [IPv4]) -> IO ()
-    print $ typeOf s3
+    -- seems like we've ended up wrapping the IO when we shouldn't which required the join
+    let s3 = \(ipSetName, ioIpList) -> join $ (setIPSet ipSetName) <$!> ioIpList
     mapM_ s3 ipSetNamesToIPs
