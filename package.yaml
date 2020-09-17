@@ -28,6 +28,11 @@ dependencies:
 - containers
 - iproute
 - process
+- text
+- time
+- split
+- aeson
+- safe
 
 library:
   source-dirs: src
