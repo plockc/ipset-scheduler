@@ -5,11 +5,12 @@ module Main where
 import Lib
 import Debug.Trace (trace)
 import Data.Either (Either(Left), Either(Right), fromRight, fromLeft, isLeft)
+import Data.Maybe (fromMaybe)
 import Data.Typeable
 import Data.List (foldr)
 import qualified Data.Text as Text (Text, splitOn, pack, unpack)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map, empty, toList, member)
+import Data.Map.Strict (Map, empty, toList, member, unions)
 import Data.IP (IPv4)
 import Data.ByteString.Char8 (pack)
 import Data.Time.Calendar (Day, DayOfWeek, dayOfWeek, toGregorian)
@@ -78,9 +79,9 @@ instance Yaml.FromJSON ScheduleConfig
 ipsForHost :: Host -> IO [IPv4]
 ipsForHost host = do
     rs <- makeResolvSeed defaultResolvConf
-    ipsResult <- withResolver rs $ \resolver -> lookupA resolver $ pack $ show host
+    ipsResult <- withResolver rs $ \resolver -> lookupA resolver $ pack host
     -- empty list is the default in case of any Left error
-    when (isLeft ipsResult) (putStrLn $ show ipsResult)
+    when (isLeft ipsResult) (putStrLn $ "Failed Lookup for " ++ host ++ ": " ++ show ipsResult)
     -- use non-error Right result from Either else use default of empty list
     return $ fromRight [] ipsResult
 
@@ -119,17 +120,18 @@ main = do
         rulesForSet = flip (Map.findWithDefault []) fullSchedule :: String -> [RuleConfig]
         rulesForDay = concatMap (rulesForSet) ruleSets :: [RuleConfig]
         rulesForNow = filter (\x -> start x <= now && end x >= now ) rulesForDay
-        -- convert to (Maybe [ServiceGroupName], Action)
-        -- convert Nothing to all ServiceGroupNames, and drop the Maybe
-        -- convert to ActionsForServiceGroups (which is for each service) which gives final Rule
-        -- then figure out how to apply the rules
+        -- update the Nothings for services in the rules to be all services
+        actionMap = Map.unions $
+            flip map rulesForNow 
+                (\r -> Map.fromList $
+                    map (\s -> (s, action r)) $ fromMaybe serviceGroupNames $ services r)
 
     putStrLn $ "All rules for today are " ++ show rulesForDay
     putStrLn $ "Active are " ++ show rulesForNow
-    putStrLn $ show year ++ " " ++ show month ++ " " ++ show dayOfMonth 
-    putStrLn $ "Today is " ++ show weekDay ++ " " ++ show hour ++ ":" ++ show minute 
-    putStrLn $ "Rule Sets to consider: " ++ show ruleSets
-    putStrLn $ "All service Groups: " ++ show serviceGroupNames
+    putStr $ "Today is " ++ show weekDay ++ " " ++ show hour ++ ":" ++ show minute 
+    putStrLn $ " " ++ show year ++ "-" ++ show month ++ "-" ++ show dayOfMonth 
+    putStrLn $ "Rule Sets to consider due to what day it is: " ++ show ruleSets
+    putStrLn $ "Actions for Services: " ++ show actionMap
  
     -----------------------------------------
  
