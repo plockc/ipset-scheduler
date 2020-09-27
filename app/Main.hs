@@ -89,7 +89,7 @@ cmdAddToIPSet :: String -> IPv4 -> IO ()
 cmdAddToIPSet ipSetName ip = do
     (code, stdout, stderr) <- readProcessWithExitCode "echo" ["WOULD RUN: ipset", "add", ipSetName, show ip] ""
     if (code == ExitSuccess) then 
-        putStrLn stdout
+        putStr stdout
     else
         putStrLn $ "Failed(" ++ show code ++ ") " ++ stderr
     
@@ -110,14 +110,14 @@ main = do
     -- gather time and date data
     ZonedTime (LocalTime localDay (TimeOfDay hour minute _)) _ <- getZonedTime
     let (year, month, dayOfMonth) = toGregorian localDay
-    let weekDay = dayOfWeek localDay
+        now = HourMinute (toInteger hour) (toInteger minute)
+        weekDay = dayOfWeek localDay
+
         ruleSets = ruleSetsForDay (calendar scheduleConfig) weekDay :: [String]
         serviceGroupNames = Map.keys $ serviceGroups scheduleConfig
-        now = HourMinute (toInteger hour) (toInteger minute)
 
         -- function that takes a rule set name and returns the Maybe rules for it
-        fullSchedule = schedule scheduleConfig :: Map String [RuleConfig]
-        rulesForSet = flip (Map.findWithDefault []) fullSchedule :: String -> [RuleConfig]
+        rulesForSet = flip (Map.findWithDefault []) (schedule scheduleConfig)
         rulesForDay = concatMap (rulesForSet) ruleSets :: [RuleConfig]
         rulesForNow = filter (\x -> start x <= now && end x >= now ) rulesForDay
         -- update the Nothings for services in the rules to be all services
