@@ -10,7 +10,7 @@ import Data.Typeable
 import Data.List (foldr)
 import qualified Data.Text as Text (Text, splitOn, pack, unpack)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map, empty, toList, member, unions)
+import Data.Map.Strict (Map, empty, toList, member, unions, filter)
 import Data.IP (IPv4)
 import Data.ByteString.Char8 (pack)
 import Data.Time.Calendar (Day, DayOfWeek, dayOfWeek, toGregorian)
@@ -118,19 +118,20 @@ main = do
 
         rulesForDay = flip concatMap ruleSets $
             flip (Map.findWithDefault []) (schedule scheduleConfig)
-        rulesForNow = filter (\x -> start x <= now && end x >= now ) rulesForDay
+        rulesForNow = Prelude.filter (\x -> start x <= now && end x >= now ) rulesForDay
         -- update the Nothings for services in the rules to be all services
         actionMap = Map.unions $
             flip map rulesForNow 
                 (\r -> Map.fromList $
                     map (\s -> (s, action r)) $ fromMaybe serviceGroupNames $ services r)
+        blocked = Map.keys $ Map.filter ((==) Block) actionMap
 
     putStrLn $ "All rules for today are " ++ show rulesForDay
     putStrLn $ "Active are " ++ show rulesForNow
     putStr $ "Today is " ++ show weekDay ++ " " ++ show hour ++ ":" ++ show minute 
     putStrLn $ " " ++ show year ++ "-" ++ show month ++ "-" ++ show dayOfMonth 
     putStrLn $ "Rule Sets to consider due to what day it is: " ++ show ruleSets
-    putStrLn $ "Actions for Services: " ++ show actionMap
+    putStrLn $ "Blocked: " ++ show blocked
  
     -----------------------------------------
  
