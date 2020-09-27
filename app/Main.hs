@@ -116,9 +116,8 @@ main = do
         ruleSets = ruleSetsForDay (calendar scheduleConfig) weekDay :: [String]
         serviceGroupNames = Map.keys $ serviceGroups scheduleConfig
 
-        -- function that takes a rule set name and returns the Maybe rules for it
-        rulesForSet = flip (Map.findWithDefault []) (schedule scheduleConfig)
-        rulesForDay = concatMap (rulesForSet) ruleSets :: [RuleConfig]
+        rulesForDay = flip concatMap ruleSets $
+            flip (Map.findWithDefault []) (schedule scheduleConfig)
         rulesForNow = filter (\x -> start x <= now && end x >= now ) rulesForDay
         -- update the Nothings for services in the rules to be all services
         actionMap = Map.unions $
