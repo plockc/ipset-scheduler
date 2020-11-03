@@ -87,7 +87,7 @@ ipsForHost host = do
 
 cmdAddToIPSet :: String -> IPv4 -> IO ()
 cmdAddToIPSet ipSetName ip = do
-    (code, stdout, stderr) <- readProcessWithExitCode "echo" ["WOULD RUN: ipset", "add", ipSetName, show ip] ""
+    (code, stdout, stderr) <- readProcessWithExitCode "echo" ["WOULD RUN: ipset", "-exist", "add", ipSetName, show ip] ""
     if (code == ExitSuccess) then 
         putStr stdout
     else
@@ -95,6 +95,11 @@ cmdAddToIPSet ipSetName ip = do
     
 setIPSet :: String -> [IPv4] -> IO ()
 setIPSet ipSetName ipList = do
+    (code, stdout, stderr) <- readProcessWithExitCode "echo" ["WOULD RUN: ipset", "-exist", "create", ipSetName, "hash:ip", "timeout", "70"] ""
+    if (code == ExitSuccess) then 
+        putStr stdout
+    else
+        putStrLn $ "Failed creating ipset " ++ ipSetName ++ " (" ++ show code ++ ") " ++ stderr
     mapM_ (cmdAddToIPSet ipSetName) ipList
 
 ruleSetsForDay :: [CalendarConfig] -> DayOfWeek -> [String]
@@ -124,8 +129,14 @@ main = do
             flip map rulesForNow 
                 (\r -> Map.fromList $
                     map (\s -> (s, action r)) $ fromMaybe serviceGroupNames $ services r)
+        -- may not use this
         blocked = Map.keys $ Map.filter ((==) Block) actionMap
 
+    -- there is a server ip set, there is also a set for each server for the blocked clients 
+    -- there is a chain of all the blocks from clien to server
+    -- clients are added or removed from the client sets based on block or allow
+    -- there is one chain that hold all the blocks from each server set to client set combo
+    
     putStrLn $ "All rules for today are " ++ show rulesForDay
     putStrLn $ "Active are " ++ show rulesForNow
     putStr $ "Today is " ++ show weekDay ++ " " ++ show hour ++ ":" ++ show minute 
