@@ -7,7 +7,7 @@ import Debug.Trace (trace)
 import Data.Either (Either(Left), Either(Right), fromRight, fromLeft, isLeft)
 import Data.Maybe (fromMaybe)
 import Data.Typeable
-import Data.List (foldr)
+import Data.List (foldr, nub, mapAccumL)
 import qualified Data.Text as Text (Text, splitOn, pack, unpack)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map, empty, toList, member, unions, filter)
@@ -69,8 +69,7 @@ instance Yaml.FromJSON CalendarConfig
 
 data ScheduleConfig = ScheduleConfig {
     serviceGroups :: Map ServiceGroupName [Host],
-    clients :: Map String String,
-    client_sets :: [Map String [String]],
+    clients :: [Map String [String]],
     schedule :: Map String [RuleConfig],
     calendar :: [CalendarConfig]
 } deriving (Generics.Generic, Eq, Show)
@@ -107,6 +106,26 @@ ruleSetsForDay :: [CalendarConfig] -> DayOfWeek -> [String]
 ruleSetsForDay calendarConfigs dayOfWeek =
     [ rules | CalendarConfig rules maybe_days_of_week <- calendarConfigs,
         maybe True (elem dayOfWeek) maybe_days_of_week]
+
+ipSetsCommandStrings :: [(String, String)] -> [[String]]
+ipSetsCommandStrings memberIps =
+    let setNames = nub [setName | (setName, _) <- memberIps]
+        setsCmdStrings = [ ["ipset", "-exist", "create", setName, "hash:ip", "timeout", "70"] | setName <- setNames]
+        membersCmdStrings = [[ "ipset", "-exist", "add", setName, show ip] | (setName, ip) <- memberIps] in
+    setsCmdStrings ++ membersCmdStrings
+
+expandEachReferenceInValues maps =
+    let dupe = \a -> (a, a) -- simply copy the value as a tuple
+        -- for each value, if it is a key in the priorMap, then replace with the prior values for that key
+        -- otherwise, use the value as-is.  concat will flatten the list of lists
+        expandVals = \priorMap vals -> nub $ concat [Map.findWithDefault [v] v priorMap | v <- vals]
+        -- Map.accumWithKey will be called with the current key and value (the value bring a literal or a key
+        -- referring to a list of prior values), along with the map as we have seen it so far (so we can keep
+        -- expanding known prior values), and return the map updated with the key evaluated values
+        addExpanded = \prior key vals -> dupe $ Map.insert key (expandVals prior vals) prior
+        -- run the accumulation on the passed in map and grab the accumlated result
+        expandMap = \prior map -> Map.mapAccumWithKey addExpanded prior map in
+    fst $ mapAccumL expandMap Map.empty maps
 
 main :: IO ()
 main = do
