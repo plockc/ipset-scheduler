@@ -69,7 +69,12 @@ instance Yaml.FromJSON CalendarConfig
 
 data ScheduleConfig = ScheduleConfig {
     serviceGroups :: Map ServiceGroupName [Host],
+    -- listed values are IP addresses or references to prior defined keys
+    -- each element of the outer list is a map a client group names to
+    -- ips and all group names can be used as references in later defined
+    -- maps
     clients :: [Map String [String]],
+    -- the key is a name of a day type, e.g. "school_day"
     schedule :: Map String [RuleConfig],
     calendar :: [CalendarConfig]
 } deriving (Generics.Generic, Eq, Show)
@@ -114,7 +119,7 @@ ipSetsCommandStrings memberIps =
         membersCmdStrings = [[ "ipset", "-exist", "add", setName, show ip] | (setName, ip) <- memberIps] in
     setsCmdStrings ++ membersCmdStrings
 
-expandEachReferenceInValues maps =
+flattenBackReferences maps =
     let dupe = \a -> (a, a) -- simply copy the value as a tuple
         -- for each value, if it is a key in the priorMap, then replace with the prior values for that key
         -- otherwise, use the value as-is.  concat will flatten the list of lists
@@ -137,20 +142,35 @@ main = do
         now = HourMinute (toInteger hour) (toInteger minute)
         weekDay = dayOfWeek localDay
 
-        ruleSets = ruleSetsForDay (calendar scheduleConfig) weekDay :: [String]
-        serviceGroupNames = Map.keys $ serviceGroups scheduleConfig
+        ruleSetsForToday = ruleSetsForDay (calendar scheduleConfig) weekDay :: [String]
+        serviceGroupNames = Map.keys $ serviceGroups scheduleConfig :: [ServiceGroupName]
 
-        rulesForDay = flip concatMap ruleSets $
-            flip (Map.findWithDefault []) (schedule scheduleConfig)
-        rulesForNow = Prelude.filter (\x -> start x <= now && end x >= now ) rulesForDay
-        -- update the Nothings for services in the rules to be all services
+        -- concatMap :: (a->[b]) -> [a] -> [b]
+        -- flip reverses arguments for the given function
+        -- the function for concatMap is find with a default of []
+        -- rulesForDay takes the rules valid for today and gathers all the rules, in order
+        rulesForDay = flip concatMap ruleSetsForToday $
+            flip (Map.findWithDefault []) (schedule scheduleConfig) :: [RuleConfig]
+        -- rules for Now further filters the rulesForToday by considering the time of day
+        rulesForNow = Prelude.filter (\x -> start x <= now && end x >= now ) rulesForDay :: [RuleConfig]
+
+        -- actionMap is all the Actions for all the Services defined in the RuleConfigs that are currently applicable
+        -- when a RuleConfig does not specify services, is is converted into all services
+        -- the unions apply in order, leaving the last Action for a given Service
         actionMap = Map.unions $
+            -- flip takes the funcion and reverses the arguments
+            -- process for each rul
             flip map rulesForNow 
-                (\r -> Map.fromList $
-                    map (\s -> (s, action r)) $ fromMaybe serviceGroupNames $ services r)
-        -- may not use this
+                --   create a map of each service to Block or Allow
+                --   based on the rule config, and default to all of the
+                --   serviceGroupNames if no services mentioned
+                (\rule -> Map.fromList $
+                    map (\service -> (service, action rule)) $ fromMaybe serviceGroupNames $ services rule) :: Map ServiceGroupName Action
+
+        -- blocked is a list of only Services that have Block'ed Action
         blocked = Map.keys $ Map.filter ((==) Block) actionMap
 
+    putStrLn $ show $ typeOf rulesForDay
     -- there is a server ip set, there is also a set for each server for the blocked clients 
     -- there is a chain of all the blocks from clien to server
     -- clients are added or removed from the client sets based on block or allow
@@ -160,7 +180,7 @@ main = do
     putStrLn $ "Active are " ++ show rulesForNow
     putStr $ "Today is " ++ show weekDay ++ " " ++ show hour ++ ":" ++ show minute 
     putStrLn $ " " ++ show year ++ "-" ++ show month ++ "-" ++ show dayOfMonth 
-    putStrLn $ "Rule Sets to consider due to what day it is: " ++ show ruleSets
+    putStrLn $ "Rule Sets to consider due to what day it is: " ++ show ruleSetsForToday
     putStrLn $ "Blocked: " ++ show blocked
  
     -----------------------------------------
@@ -180,3 +200,5 @@ main = do
     let s3 = \(ipSetName, ioIpList) -> join $ (setIPSet ipSetName) <$!> ioIpList
     mapM_ s3 ipSetNamesToIPs
 
+    let configuredClients = flattenBackReferences (clients scheduleConfig)
+    putStrLn $ "clients are " ++ show configuredClients
